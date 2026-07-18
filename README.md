@@ -1,127 +1,109 @@
 # ReasonDiff
 
-Visualize where LLM reasoning chains diverge between different models or prompts.
+**Ever wondered why two AI models give you different answers to the exact same question?**
 
-## Why it matters
+ReasonDiff shows you exactly where their thinking split — sentence by sentence.
 
-ReasonDiff answers a critical question in production LLM systems: **Where exactly did the reasoning chains differ?** This pairs perfectly with [SilentRegression](https://github.com/trinathone/silent-regression), which detects *when* reasoning drifts — ReasonDiff shows *why* and *where*.
+---
 
-Use cases:
-- MLOps engineers debugging model behavior across NVIDIA NIM instances
-- Prompt engineers comparing system prompt variations
-- AI platform teams detecting reasoning quality regressions
-- Developers investigating why deepseek-r1 and llama-3.3 solve the same problem differently
+## The Problem It Solves
+
+You ask GPT-4 and DeepSeek the same question. You get different answers. But *why*? At what point did they start thinking differently? Was it the first sentence of reasoning, or did they agree for 80% of the way and then diverge at the end?
+
+Right now there's no easy way to see this. You just get two answers and have to read both and figure it out yourself.
+
+ReasonDiff does it automatically — runs both models, extracts their internal reasoning (the "thinking" part), and gives you a colored diff like a Git diff for thoughts.
+
+---
+
+## Real Use Cases
+
+### "I upgraded my AI model — why is it behaving differently?"
+You were using DeepSeek R1 and switched to Nemotron. Some answers changed. You want to know *where the logic diverged* — not just that it did.
+
+Run both models on the same prompt. ReasonDiff shows you the exact sentence where reasoning split. You find out: the old model assumed the user wanted a short answer, the new model assumed they wanted detail. One sentence difference, totally different output.
+
+### "My AI coding assistant gives wrong answers on edge cases"
+You're comparing two prompt versions — one system prompt vs another. The outputs look similar but one occasionally fails. ReasonDiff shows you both reasoning chains side by side. The failing version skips a safety check the working one does every time. Found it in 30 seconds.
+
+### "Which model is actually thinking harder about my problem?"
+You're picking between 3 models for a production use case. Don't just compare final answers — compare the reasoning depth. ReasonDiff shows you reasoning length, similarity score, and where each model's logic is stronger.
+
+### "My AI gave the wrong answer — where did it go wrong?"
+Paste the same prompt into two model configs: the model that got it right vs the one that got it wrong. See exactly where the reasoning diverged. Now you know whether to fix the prompt, switch models, or both.
+
+---
+
+## How It Works
+
+1. Pick two models (or two prompt versions for the same model)
+2. Enter your prompt
+3. Hit Run — both models respond in parallel
+4. See a side-by-side colored diff of their reasoning chains
+
+Color coding:
+- 🟢 Green = this model added this reasoning the other didn't
+- 🔴 Red = this model skipped something the other included
+- 🟡 Yellow = same idea, said differently
+
+Stats you get: similarity score (0-100%), which sentence first diverged, reasoning length for each model.
+
+---
 
 ## Quick Start
 
-### Install dependencies
 ```bash
 pip install -r requirements.txt
-```
-
-### Set up API keys
-ReasonDiff reads NVIDIA NIM API keys from `~/keys/api_keys.py`. The expected format:
-```python
-# ~/keys/api_keys.py
-NVIDIA_MODELS = {
-    'nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-    'deepseek': 'deepseek-ai/deepseek-r1',
-    'qwq': 'qwen/qwq-32b',
-    'llama': 'meta/llama-3.3-70b-instruct',
-}
-
-class nvidia_chat:
-    api_key = "your-nvidia-nim-api-key"
-```
-
-If `api_keys.py` is missing or API key is not set, the tool runs in mock mode and generates placeholder responses (useful for UI testing).
-
-### Run the server
-```bash
 uvicorn main:app --port 8007
 ```
 
-Open http://localhost:8007 in your browser.
+Open http://localhost:8007
 
-## How it works
+No API key? It runs in demo mode with mock responses so you can explore the UI first.
 
-1. **Configure both models** — select Model A and Model B from NVIDIA NIM
-2. **Enter prompts** — system prompt + user prompt (same for both models)
-3. **Run diff** — tool calls both models in parallel and extracts reasoning chains
-4. **View results** — side-by-side colored diff shows exactly where reasoning diverged
+---
 
-### Reasoning extraction
-ReasonDiff handles multiple response formats:
-- **DeepSeek R1**: reads `response.choices[0].message.reasoning_content`
-- **Nemotron/QwQ**: extracts `<think>...</think>` blocks from content
-- **Fallback**: parses `<reasoning>` tags or returns full content
+## Supported Models (via NVIDIA NIM)
 
-### Diff algorithm
-- Splits reasoning into sentences (on `. ` and `\n`)
-- Uses Python's `difflib.SequenceMatcher` for optimal alignment
-- Color-codes output: 
-  - 🟢 Green = added (Model B only)
-  - 🔴 Red = removed (Model A only)  
-  - 🟡 Yellow = changed
+- DeepSeek R1 — reasoning model, exposes full `reasoning_content`
+- Nemotron 253B — NVIDIA's flagship, extracts `<think>` blocks
+- QwQ 32B — Qwen reasoning model
+- Llama 3.3 70B — solid baseline for comparison
 
-### Stats
-- **Similarity score** — 0-100% overlap in reasoning
-- **Divergence point** — which sentence first differed
-- **Reasoning length** — char count for both models
+---
 
-## File structure
+## API
+
 ```
-~/repos/reasondiff/
-├── main.py              # FastAPI app + endpoints
-├── diff_engine.py       # reasoning extraction + diff logic
-├── llm_client.py        # NVIDIA NIM API client
-├── static/
-│   └── index.html       # Single-page UI (dark theme)
-├── requirements.txt
-├── README.md
-└── CLAUDE.md           # Build spec
+POST /diff
+{
+  "model_a": "deepseek-ai/deepseek-r1",
+  "model_b": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+  "system_prompt": "You are a helpful assistant.",
+  "user_prompt": "Should I use Redis or Postgres for storing user sessions?"
+}
 ```
 
-## API Endpoints
+Returns: reasoning chains, similarity score, divergence point, colored HTML diff.
 
-- `GET /` — serve UI
-- `POST /diff` — compute diff
-  - Body: `{model_a, model_b, system_prompt, user_prompt}`
-  - Returns: reasoning chains, similarity score, colored diff HTML
-- `GET /health` — health check
-- `GET /models` — available NVIDIA NIM models
-
-## Features
-
-### Core MVP ✅
-- Two-panel input for model A and model B configs
-- Live API calls to NVIDIA NIM
-- Reasoning content extraction (multiple formats)
-- Side-by-side colored diff view
-- Similarity score & divergence point detection
-- Final answer comparison
-
-### Nice to have
-- Save snapshots to `/tmp/reasondiff_snapshots/`
-- Batch mode for 3+ models
-- Search within diffs
-- Keyboard shortcuts
-
-## No API key? No problem
-
-Running without `~/keys/api_keys.py` or without a valid API key? The UI still works perfectly. The tool generates mock reasoning chains so you can test the UI and diff algorithm locally.
+---
 
 ## Stack
-- **Backend**: FastAPI (Python 3.11) + uvicorn
-- **Frontend**: Vanilla JS, no framework
-- **Diff algorithm**: Python `difflib`
-- **LLM API**: NVIDIA NIM (async via httpx)
-- **Styling**: Dark theme (GitHub-inspired #0d1117 palette)
 
-## Related tools
-- [SilentRegression](https://github.com/trinathone/silent-regression) — detects when reasoning drifts
-- LiteLLM #25 — "DeepSeek V4 Pro strips reasoning_content"
-- MLflow #19 — "No histogram plot logging over time"
+- FastAPI + Python 3.11
+- Vanilla JS frontend, no framework
+- `difflib` for sentence-level diff
+- NVIDIA NIM for model inference
+- Dark theme UI
+
+---
+
+## Related
+
+- [SilentRegression](https://github.com/trinathone/silent-regression) — detects *when* model reasoning starts drifting in production. ReasonDiff shows *where* and *why*.
+
+---
 
 ## License
+
 MIT
